@@ -78,8 +78,10 @@ test("production upload and artifact view routes use signed B2 URLs", () => {
   const presignSource = readFileSync("apps/web/src/app/api/uploads/presign/route.ts", "utf8");
   const completionSource = readFileSync("apps/web/src/app/api/uploads/complete/route.ts", "utf8");
   const viewSource = readFileSync("apps/web/src/app/api/artifacts/[artifactId]/view/route.ts", "utf8");
+  const b2Source = readFileSync("apps/web/src/lib/b2.ts", "utf8");
   assert.match(presignSource, /PutObjectCommand/);
   assert.doesNotMatch(presignSource, /ContentLength:\s*sizeInBytes/, "Presign route must not pass ContentLength to PutObjectCommand as it breaks browser fetch CORS/signed headers");
+  assert.match(b2Source, /requestChecksumCalculation:\s*"WHEN_REQUIRED"/, "B2 client must disable default flexible checksum calculation on presigned URLs");
   assert.match(completionSource, /HeadObjectCommand/);
   assert.match(completionSource, /status: "CLEAN"/);
   assert.match(viewSource, /GetObjectCommand/);

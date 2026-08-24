@@ -97,6 +97,8 @@ export async function PUT(req: NextRequest) {
             secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.OBJECT_STORAGE_APPLICATION_KEY || "",
           },
           forcePathStyle: true,
+          requestChecksumCalculation: "WHEN_REQUIRED",
+          responseChecksumValidation: "WHEN_REQUIRED",
         });
 
         // Use quarantine bucket dockerize-sakhaa-forge-quarantine

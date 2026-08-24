@@ -24,6 +24,8 @@ async function fetchLogsFromS3(jobId: string): Promise<string[]> {
       region,
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true,
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
 
     const command = new GetObjectCommand({

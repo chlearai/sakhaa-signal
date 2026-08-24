@@ -69,6 +69,8 @@ export async function POST(
           secretAccessKey: secretAccessKey,
         },
         forcePathStyle: true, // Required for Backblaze B2 and similar S3-compatible APIs
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
       });
 
       const command = new PutObjectCommand({
