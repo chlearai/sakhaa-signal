@@ -101,7 +101,6 @@ export async function POST(req: NextRequest) {
           Bucket: getQuarantineBucket(),
           Key: objectKey,
           ContentType: String(contentType),
-          ContentLength: sizeInBytes,
         }),
         { expiresIn: 15 * 60 }
       );

@@ -5,6 +5,7 @@ import Link from "next/link";
 import WorkspaceSwitcher from "./WorkspaceSwitcher";
 import UserProfileMenu from "./UserProfileMenu";
 import HamburgerMenu from "./HamburgerMenu";
+import NotificationBell from "../notifications/NotificationBell";
 
 export default function AppNavbar({
   user,
@@ -45,9 +46,10 @@ export default function AppNavbar({
         </nav>
       </div>
 
-      {/* Right side: Workspace Switcher, User Profile Menu & Hamburger Drawer */}
+      {/* Right side: Workspace Switcher, Notification Bell, User Profile Menu & Hamburger Drawer */}
       <div className="flex items-center gap-3 md:gap-4">
         <WorkspaceSwitcher currentWorkspace={workspace} />
+        <NotificationBell />
         <UserProfileMenu user={user} />
         <HamburgerMenu user={user} workspace={workspace} />
       </div>

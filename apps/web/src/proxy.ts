@@ -61,9 +61,29 @@ export async function proxy(request: NextRequest) {
     });
   }
 
-  // API handlers still own authorization and response semantics. Proxy only
-  // refreshes Supabase cookies before forwarding the request.
+  // API handlers still own authorization and response semantics. Proxy handles CORS
+  // headers and refreshes Supabase cookies before forwarding the request.
   if (isApiRoute) {
+    const origin = request.headers.get("origin") || "*";
+
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+          "Access-Control-Allow-Credentials": "true",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
+    }
+
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+
     return response;
   }
 

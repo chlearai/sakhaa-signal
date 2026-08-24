@@ -38,6 +38,8 @@ const EMAIL_ROLE_MAPPING: Record<
   "akshairofficial@gmail.com": { role: "ADMIN", isPlatformAdmin: false },
   "roxx.akshai@gmail.com": { role: "CLIENT_MANAGER", isPlatformAdmin: false },
   "akshaiindia97@gmail.com": { role: "REVIEWER", isPlatformAdmin: false },
+  "pm@agency.com": { role: "CLIENT_MANAGER", isPlatformAdmin: false },
+  "pm@agency": { role: "CLIENT_MANAGER", isPlatformAdmin: false },
 };
 
 /**

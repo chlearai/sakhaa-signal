@@ -1,9 +1,9 @@
-// Root Prisma schema pointer for default CLI discovery
-// Canonical schema lives in packages/db/prisma/schema.prisma
+// Product V0 F3 identity, tenancy, idempotency and artifact schema.
+// Sources: docs/V0/V0_PRISMA_SCHEMA.md and docs/V0/Sprints/V0-F3_PRIVATE_ARTIFACT_UPLOAD_QUARANTINE_AND_AUTHORIZED_RETRIEVAL_SPRINT.md.
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../packages/db/generated/client"
+  output   = "../generated/client"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -11,3 +11,1029 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  CLIENT_MANAGER
+  REVIEWER
+
+  @@map("membership_role")
+}
+
+enum RecordStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+
+  @@map("record_status")
+}
+
+enum AssetTrustStatus {
+  QUARANTINED
+  VALIDATING
+  CLEAN
+  REJECTED
+  DELETED
+
+  @@map("asset_trust_status")
+}
+
+enum JobStatus {
+  CREATED
+  QUEUED
+  LEASED
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  FAILED
+  CANCEL_REQUESTED
+  CANCELLED
+  EXPIRED
+
+  @@map("job_status")
+}
+
+model User {
+  id          String       @id @db.Uuid
+  email       String?      @db.VarChar(320)
+  displayName String?      @map("display_name") @db.VarChar(160)
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships Membership[]
+  auditEvents AuditEvent[] @relation("AuditActor")
+  idempotencyRecords IdempotencyRecord[] @relation("IdempotencyActor")
+  updatedWorkspaceCapabilities WorkspaceCapability[]
+  serviceCredentialsUpdated ServiceCredential[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @db.VarChar(120)
+  slug        String       @db.VarChar(140)
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships Membership[]
+  auditEvents AuditEvent[]
+  idempotencyRecords IdempotencyRecord[]
+  artifacts Artifact[]
+  brandCrawlRuns BrandCrawlRun[]
+  brandAssets BrandAsset[]
+  brandCandidates BrandCandidate[]
+  brandProfiles BrandProfile[]
+  brandApprovals BrandApproval[]
+  brandRules BrandRule[]
+  generationEstimates GenerationEstimate[]
+  blueprintLibraryEntries BlueprintLibraryEntry[]
+  blueprintRequests BlueprintRequest[]
+  formulaDerivations FormulaDerivation[]
+  directorPrompts DirectorPrompt[]
+  viralCandidates ViralCandidate[]
+  metricSnapshots MetricSnapshot[]
+  mediaAcquisitions MediaAcquisition[]
+  thumbnailBlueprints ThumbnailBlueprint[]
+  videoBlueprints VideoBlueprint[]
+  blueprintScenes BlueprintScene[]
+  inboxEvents InboxEvent[]
+  analysisJobs AnalysisJob[]
+  jobs Job[]
+  jobAttempts JobAttempt[]
+  jobEvents JobEvent[]
+  outboxEvents OutboxEvent[]
+  capabilities WorkspaceCapability[]
+  serviceCredentials ServiceCredential[]
+  notifications Notification[]
+
+  @@unique([slug])
+  @@index([status, createdAt])
+  @@map("workspaces")
+}
+
+model ServiceCredential {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  provider        String   @db.VarChar(120)
+  purpose         String   @db.VarChar(120)
+  environment     String   @db.VarChar(80)
+  secretRef       String   @map("secret_ref") @db.VarChar(300)
+  rotationStatus  String   @map("rotation_status") @db.VarChar(80)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  lastRotatedAt   DateTime? @map("last_rotated_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+  updatedBy       User?     @relation(fields: [updatedByUserId], references: [id])
+
+  @@index([workspaceId, provider, environment])
+  @@map("service_credentials")
+}
+
+model WorkspaceCapability {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  capability      String    @db.VarChar(120)
+  enabled         Boolean   @default(true)
+  disabledReason  String?   @map("disabled_reason") @db.VarChar(500)
+  updatedByUserId String    @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+  updatedBy       User      @relation(fields: [updatedByUserId], references: [id])
+
+  @@unique([workspaceId, capability])
+  @@index([workspaceId, enabled])
+  @@map("workspace_capabilities")
+}
+
+model Membership {
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String         @map("workspace_id") @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  role        MembershipRole
+  status      RecordStatus   @default(ACTIVE)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id])
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@unique([workspaceId, userId])
+  @@index([userId, status])
+  @@index([workspaceId, role])
+  @@map("memberships")
+}
+
+model AuditEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String?   @map("workspace_id") @db.Uuid
+  actorUserId   String?   @map("actor_user_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(120)
+  targetType    String?   @map("target_type") @db.VarChar(120)
+  targetId      String?   @map("target_id") @db.Uuid
+  reason        String?   @db.VarChar(500)
+  occurredAt    DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id])
+  actor         User?      @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([workspaceId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@map("audit_events")
+}
+
+model IdempotencyRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String?   @map("workspace_id") @db.Uuid
+  actorUserId    String    @map("actor_user_id") @db.Uuid
+  operation      String    @db.VarChar(120)
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(200)
+  requestHash    String    @map("request_hash") @db.Char(64)
+  responseStatus Int       @map("response_status")
+  responseBody   Json      @map("response_body")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id])
+  actor          User      @relation("IdempotencyActor", fields: [actorUserId], references: [id])
+
+  @@unique([workspaceId, operation, idempotencyKey])
+  @@unique([actorUserId, operation, idempotencyKey])
+  @@index([actorUserId, operation, createdAt])
+  @@map("idempotency_records")
+}
+
+model Artifact {
+  id             String           @id @default(uuid()) @db.Uuid
+  workspaceId    String           @map("workspace_id") @db.Uuid
+  fileName       String           @map("file_name") @db.VarChar(240)
+  contentType    String           @map("content_type") @db.VarChar(120)
+  byteSize       Int              @map("byte_size")
+  sha256         String           @db.Char(64)
+  status         AssetTrustStatus @default(QUARANTINED)
+  retentionClass String           @map("retention_class") @db.VarChar(80)
+  producer       String           @db.VarChar(120)
+  schemaVersion  String           @map("schema_version") @db.VarChar(80)
+  objectKey      String           @map("object_key") @db.VarChar(500)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id])
+  brandAssets    BrandAsset[]
+  mediaAcquisitions MediaAcquisition[]
+  thumbnailBlueprints ThumbnailBlueprint[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, updatedAt, id])
+  @@map("artifacts")
+}
+
+model BrandCrawlRun {
+  id                 String       @id @default(uuid()) @db.Uuid
+  workspaceId        String       @map("workspace_id") @db.Uuid
+  sourceUrl          String       @map("source_url") @db.VarChar(1000)
+  normalizedUrl      String       @map("normalized_url") @db.VarChar(500)
+  status             JobStatus    @default(QUEUED)
+  rightsAcknowledged Boolean      @map("rights_acknowledged")
+  crawlScope         Json         @map("crawl_scope")
+  robotsPolicy       Json?        @map("robots_policy")
+  jobId              String?      @map("job_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace          Workspace    @relation(fields: [workspaceId], references: [id])
+  brandAssets        BrandAsset[]
+  brandCandidates    BrandCandidate[]
+  brandProfiles      BrandProfile[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, normalizedUrl])
+  @@map("brand_crawl_runs")
+}
+
+model BrandAsset {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @map("workspace_id") @db.Uuid
+  crawlRunId   String        @map("crawl_run_id") @db.Uuid
+  artifactId   String        @map("artifact_id") @db.Uuid
+  rightsBasis  String        @map("rights_basis") @db.VarChar(240)
+  permittedUse String        @map("permitted_use") @db.VarChar(240)
+  status       RecordStatus  @default(ACTIVE)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id])
+  crawlRun     BrandCrawlRun @relation(fields: [crawlRunId], references: [id])
+  artifact     Artifact      @relation(fields: [artifactId], references: [id])
+
+  @@unique([workspaceId, artifactId, crawlRunId])
+  @@index([workspaceId, status, createdAt])
+  @@map("brand_assets")
+}
+
+model BrandCandidate {
+  id                String        @id @default(uuid()) @db.Uuid
+  workspaceId       String        @map("workspace_id") @db.Uuid
+  crawlRunId        String        @map("crawl_run_id") @db.Uuid
+  fieldType         String        @map("field_type") @db.VarChar(120)
+  value             Json
+  confidence        Decimal       @db.Decimal(4, 3)
+  decision          String        @default("candidate") @db.VarChar(80)
+  extractionState   String        @map("extraction_state") @db.VarChar(80)
+  sourceEvidence    Json          @map("source_evidence")
+  conflict          Boolean       @default(false)
+  sourceFingerprint String        @map("source_fingerprint") @db.Char(64)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace         Workspace     @relation(fields: [workspaceId], references: [id])
+  crawlRun          BrandCrawlRun @relation(fields: [crawlRunId], references: [id])
+
+  @@unique([workspaceId, crawlRunId, fieldType, sourceFingerprint])
+  @@index([workspaceId, crawlRunId, fieldType])
+  @@index([workspaceId, extractionState, createdAt])
+  @@map("brand_candidates")
+}
+
+model BrandProfile {
+  id               String        @id @default(uuid()) @db.Uuid
+  workspaceId      String        @map("workspace_id") @db.Uuid
+  brandId          String        @map("brand_id") @db.Uuid
+  crawlRunId       String        @map("crawl_run_id") @db.Uuid
+  schemaVersion    String        @map("schema_version") @db.VarChar(80)
+  version          Int
+  status           String        @db.VarChar(40)
+  active           Boolean       @default(false)
+  profile          Json
+  sourceSummary    Json          @map("source_summary")
+  approvedByUserId String        @map("approved_by_user_id") @db.Uuid
+  approvedAt       DateTime      @map("approved_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id])
+  crawlRun         BrandCrawlRun @relation(fields: [crawlRunId], references: [id])
+  approvals        BrandApproval[]
+  rules            BrandRule[]
+  generationEstimates GenerationEstimate[]
+  blueprintLibraryEntries BlueprintLibraryEntry[]
+  blueprintRequests BlueprintRequest[]
+
+  @@unique([workspaceId, brandId, version])
+  @@index([workspaceId, brandId, status, active])
+  @@map("brand_profiles")
+}
+
+model BrandApproval {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  brandProfileId String       @map("brand_profile_id") @db.Uuid
+  brandId        String       @map("brand_id") @db.Uuid
+  actorUserId    String       @map("actor_user_id") @db.Uuid
+  decision       String       @db.VarChar(40)
+  reason         String?      @db.VarChar(500)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id])
+  brandProfile   BrandProfile @relation(fields: [brandProfileId], references: [id])
+
+  @@index([workspaceId, brandId, createdAt])
+  @@map("brand_approvals")
+}
+
+model BrandRule {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  brandProfileId String       @map("brand_profile_id") @db.Uuid
+  brandId        String       @map("brand_id") @db.Uuid
+  type           String       @db.VarChar(80)
+  value          String       @db.VarChar(500)
+  severity       String       @db.VarChar(40)
+  rationale      String       @db.VarChar(500)
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id])
+  brandProfile   BrandProfile @relation(fields: [brandProfileId], references: [id])
+
+  @@unique([workspaceId, brandProfileId, type, value])
+  @@index([workspaceId, brandId, status])
+  @@map("brand_rules")
+}
+
+model GenerationEstimate {
+  id                     String       @id @default(uuid()) @db.Uuid
+  workspaceId            String       @map("workspace_id") @db.Uuid
+  brandProfileId         String       @map("brand_profile_id") @db.Uuid
+  status                 String       @db.VarChar(40)
+  provider               String       @db.VarChar(80)
+  priceVersion           String       @map("price_version") @db.VarChar(80)
+  maximumAuthorizedMinor BigInt       @map("maximum_authorized_minor")
+  currency               String       @db.VarChar(3)
+  selectedScriptId       String       @map("selected_script_id") @db.Uuid
+  avatarProfileId        String       @map("avatar_profile_id") @db.Uuid
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace              Workspace    @relation(fields: [workspaceId], references: [id])
+  brandProfile           BrandProfile @relation(fields: [brandProfileId], references: [id])
+
+  @@index([workspaceId, brandProfileId, status])
+  @@map("generation_estimates")
+}
+
+model BlueprintLibraryEntry {
+  id              String       @id @default(uuid()) @db.Uuid
+  workspaceId     String       @map("workspace_id") @db.Uuid
+  brandProfileId  String       @map("brand_profile_id") @db.Uuid
+  title           String       @db.VarChar(200)
+  status          String       @db.VarChar(40)
+  compatibility   Json
+  createdByUserId String       @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id])
+  brandProfile    BrandProfile @relation(fields: [brandProfileId], references: [id])
+  blueprintRequests BlueprintRequest[]
+  formulaDerivations FormulaDerivation[]
+  directorPrompts DirectorPrompt[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, updatedAt, id])
+  @@map("blueprint_library_entries")
+}
+
+model BlueprintRequest {
+  id                      String       @id @default(uuid()) @db.Uuid
+  workspaceId             String       @map("workspace_id") @db.Uuid
+  path                    String       @db.VarChar(40)
+  brandProfileId          String       @map("brand_profile_id") @db.Uuid
+  brandProfileVersion     Int          @map("brand_profile_version")
+  blueprintLibraryEntryId String?      @map("blueprint_library_entry_id") @db.Uuid
+  objectiveType           String       @map("objective_type") @db.VarChar(120)
+  objective               String       @db.VarChar(500)
+  status                  String       @db.VarChar(40)
+  createdByUserId         String       @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace    @relation(fields: [workspaceId], references: [id])
+  brandProfile            BrandProfile @relation(fields: [brandProfileId], references: [id])
+  blueprintLibraryEntry   BlueprintLibraryEntry? @relation(fields: [blueprintLibraryEntryId], references: [id])
+  viralCandidates         ViralCandidate[]
+  formulaDerivations      FormulaDerivation[]
+  directorPrompts         DirectorPrompt[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, brandProfileId, createdAt])
+  @@map("blueprint_requests")
+}
+
+model FormulaDerivation {
+  id                      String                @id @default(uuid()) @db.Uuid
+  workspaceId             String                @map("workspace_id") @db.Uuid
+  blueprintLibraryEntryId String                @map("blueprint_library_entry_id") @db.Uuid
+  blueprintRequestId      String                @map("blueprint_request_id") @db.Uuid
+  status                  String                @db.VarChar(40)
+  formulaVersion          String                @map("formula_version") @db.VarChar(80)
+  slots                   Json
+  replacementInstructions Json                  @map("replacement_instructions")
+  lineage                 Json
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace             @relation(fields: [workspaceId], references: [id])
+  blueprintLibraryEntry   BlueprintLibraryEntry @relation(fields: [blueprintLibraryEntryId], references: [id])
+  blueprintRequest        BlueprintRequest      @relation(fields: [blueprintRequestId], references: [id])
+  directorPrompts         DirectorPrompt[]
+
+  @@unique([workspaceId, blueprintLibraryEntryId])
+  @@index([workspaceId, status, createdAt])
+  @@map("formula_derivations")
+}
+
+model DirectorPrompt {
+  id                      String                @id @default(uuid()) @db.Uuid
+  workspaceId             String                @map("workspace_id") @db.Uuid
+  blueprintLibraryEntryId String                @map("blueprint_library_entry_id") @db.Uuid
+  formulaDerivationId     String                @map("formula_derivation_id") @db.Uuid
+  blueprintRequestId      String                @map("blueprint_request_id") @db.Uuid
+  status                  String                @db.VarChar(40)
+  promptVersion           String                @map("prompt_version") @db.VarChar(80)
+  replacementSlots        Json                  @map("replacement_slots")
+  prompt                  String                @db.Text
+  lineage                 Json
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace             @relation(fields: [workspaceId], references: [id])
+  blueprintLibraryEntry   BlueprintLibraryEntry @relation(fields: [blueprintLibraryEntryId], references: [id])
+  formulaDerivation       FormulaDerivation     @relation(fields: [formulaDerivationId], references: [id])
+  blueprintRequest        BlueprintRequest      @relation(fields: [blueprintRequestId], references: [id])
+
+  @@unique([workspaceId, blueprintLibraryEntryId])
+  @@index([workspaceId, status, createdAt])
+  @@map("director_prompts")
+}
+
+model ViralCandidate {
+  id                 String           @id @default(uuid()) @db.Uuid
+  workspaceId        String           @map("workspace_id") @db.Uuid
+  blueprintRequestId String           @map("blueprint_request_id") @db.Uuid
+  provider           String           @db.VarChar(80)
+  sourceIdentity     String           @map("source_identity") @db.VarChar(240)
+  sourceUrl          String           @map("source_url") @db.VarChar(1000)
+  title              String           @db.VarChar(240)
+  creatorHandle      String           @map("creator_handle") @db.VarChar(160)
+  niche              String           @db.VarChar(240)
+  market             String           @db.VarChar(120)
+  objectiveType      String           @map("objective_type") @db.VarChar(120)
+  rank               Int
+  score              Int
+  selectionState     String           @map("selection_state") @db.VarChar(40)
+  rightsWarnings     Json             @map("rights_warnings")
+  metadata           Json
+  provenance         Json
+  sourceHash         String           @map("source_hash") @db.Char(64)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id])
+  blueprintRequest   BlueprintRequest @relation(fields: [blueprintRequestId], references: [id])
+  metricSnapshots    MetricSnapshot[]
+  mediaAcquisitions  MediaAcquisition[]
+  thumbnailBlueprints ThumbnailBlueprint[]
+  videoBlueprints VideoBlueprint[]
+
+  @@unique([workspaceId, blueprintRequestId, sourceHash])
+  @@index([workspaceId, blueprintRequestId, rank])
+  @@index([workspaceId, selectionState, createdAt])
+  @@map("viral_candidates")
+}
+
+model MetricSnapshot {
+  id               String         @id @default(uuid()) @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  viralCandidateId String         @map("viral_candidate_id") @db.Uuid
+  provider         String         @db.VarChar(80)
+  observedAt       DateTime       @map("observed_at") @db.Timestamptz(6)
+  metrics          Json
+  sourceHash       String         @map("source_hash") @db.Char(64)
+  immutable        Boolean        @default(true)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id])
+  viralCandidate   ViralCandidate @relation(fields: [viralCandidateId], references: [id])
+
+  @@unique([workspaceId, viralCandidateId, sourceHash])
+  @@index([workspaceId, observedAt, id])
+  @@map("metric_snapshots")
+}
+
+model MediaAcquisition {
+  id               String         @id @default(uuid()) @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  viralCandidateId String         @map("viral_candidate_id") @db.Uuid
+  artifactId       String?        @map("artifact_id") @db.Uuid
+  status           String         @db.VarChar(40)
+  retrievalPolicy  String         @map("retrieval_policy") @db.VarChar(80)
+  acquisitionMode  String         @map("acquisition_mode") @db.VarChar(80)
+  rightsDecision   Json           @map("rights_decision")
+  sourceHash       String         @map("source_hash") @db.Char(64)
+  blockedReason    String?        @map("blocked_reason") @db.VarChar(160)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id])
+  viralCandidate   ViralCandidate @relation(fields: [viralCandidateId], references: [id])
+  artifact         Artifact?      @relation(fields: [artifactId], references: [id])
+  thumbnailBlueprints ThumbnailBlueprint[]
+  videoBlueprints VideoBlueprint[]
+
+  @@index([workspaceId, viralCandidateId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@map("media_acquisitions")
+}
+
+model ThumbnailBlueprint {
+  id                 String           @id @default(uuid()) @db.Uuid
+  workspaceId        String           @map("workspace_id") @db.Uuid
+  viralCandidateId   String           @map("viral_candidate_id") @db.Uuid
+  mediaAcquisitionId String           @map("media_acquisition_id") @db.Uuid
+  artifactId         String?          @map("artifact_id") @db.Uuid
+  status             String           @db.VarChar(40)
+  ocr                Json
+  composition        Json
+  hookHypothesis     String           @map("hook_hypothesis") @db.VarChar(500)
+  directorGuidance   Json             @map("director_guidance")
+  quality            Json
+  sourceHash         String           @map("source_hash") @db.Char(64)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id])
+  viralCandidate     ViralCandidate   @relation(fields: [viralCandidateId], references: [id])
+  mediaAcquisition   MediaAcquisition @relation(fields: [mediaAcquisitionId], references: [id])
+  artifact           Artifact?        @relation(fields: [artifactId], references: [id])
+  videoBlueprints    VideoBlueprint[]
+
+  @@index([workspaceId, viralCandidateId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@map("thumbnail_blueprints")
+}
+
+model VideoBlueprint {
+  id                   String             @id @default(uuid()) @db.Uuid
+  workspaceId          String             @map("workspace_id") @db.Uuid
+  viralCandidateId     String             @map("viral_candidate_id") @db.Uuid
+  mediaAcquisitionId   String             @map("media_acquisition_id") @db.Uuid
+  thumbnailBlueprintId String             @map("thumbnail_blueprint_id") @db.Uuid
+  status               String             @db.VarChar(40)
+  durationMs           Int                @map("duration_ms")
+  stageStates          Json               @map("stage_states")
+  stageArtifactIds     Json               @map("stage_artifact_ids")
+  sourceHash           String             @map("source_hash") @db.Char(64)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace            Workspace          @relation(fields: [workspaceId], references: [id])
+  viralCandidate       ViralCandidate     @relation(fields: [viralCandidateId], references: [id])
+  mediaAcquisition     MediaAcquisition   @relation(fields: [mediaAcquisitionId], references: [id])
+  thumbnailBlueprint   ThumbnailBlueprint @relation(fields: [thumbnailBlueprintId], references: [id])
+  scenes               BlueprintScene[]
+
+  @@index([workspaceId, viralCandidateId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@map("video_blueprints")
+}
+
+model BlueprintScene {
+  id               String         @id @default(uuid()) @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  videoBlueprintId String         @map("video_blueprint_id") @db.Uuid
+  index            Int            @map("scene_index")
+  startMs          Int            @map("start_ms")
+  endMs            Int            @map("end_ms")
+  formulaSlot      String         @map("formula_slot") @db.VarChar(80)
+  shot             Json
+  motion           Json
+  transcript       Json
+  ocr              Json
+  replacements     Json
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id])
+  videoBlueprint   VideoBlueprint @relation(fields: [videoBlueprintId], references: [id])
+
+  @@unique([workspaceId, videoBlueprintId, index])
+  @@index([workspaceId, videoBlueprintId, index])
+  @@map("blueprint_scenes")
+}
+
+model Job {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  type           String       @db.VarChar(120)
+  resourceClass  String       @map("resource_class") @db.VarChar(40)
+  status         JobStatus    @default(CREATED)
+  priority       Int          @default(0)
+  inputHash      String       @map("input_hash") @db.Char(64)
+  input          Json
+  outputArtifactId String?    @map("output_artifact_id") @db.Uuid
+  lastErrorCode  String?      @map("last_error_code") @db.VarChar(120)
+  nextRunAt      DateTime?    @map("next_run_at") @db.Timestamptz(6)
+  maxAttempts    Int          @default(5) @map("max_attempts")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id])
+  attempts       JobAttempt[]
+  events         JobEvent[]
+  parentEdges    JobDependency[] @relation("JobParent")
+  childEdges     JobDependency[] @relation("JobChild")
+
+  @@index([workspaceId, status, nextRunAt])
+  @@index([workspaceId, updatedAt, id])
+  @@map("jobs")
+}
+
+model JobAttempt {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  jobId          String    @map("job_id") @db.Uuid
+  attemptNumber  Int       @map("attempt_number")
+  leaseToken     String    @map("lease_token") @db.Uuid
+  status         JobStatus @default(LEASED)
+  leasedAt       DateTime  @default(now()) @map("leased_at") @db.Timestamptz(6)
+  heartbeatAt    DateTime  @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  errorCode      String?   @map("error_code") @db.VarChar(120)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  job            Job       @relation(fields: [jobId], references: [id])
+
+  @@unique([jobId, attemptNumber])
+  @@index([workspaceId, status, heartbeatAt])
+  @@map("job_attempts")
+}
+
+model JobDependency {
+  id        String @id @default(uuid()) @db.Uuid
+  parentJobId String @map("parent_job_id") @db.Uuid
+  childJobId  String @map("child_job_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  parentJob Job @relation("JobParent", fields: [parentJobId], references: [id])
+  childJob  Job @relation("JobChild", fields: [childJobId], references: [id])
+
+  @@unique([parentJobId, childJobId])
+  @@map("job_dependencies")
+}
+
+model JobEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  jobId       String    @map("job_id") @db.Uuid
+  eventType   String    @map("event_type") @db.VarChar(120)
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  job         Job       @relation(fields: [jobId], references: [id])
+
+  @@index([workspaceId, jobId, createdAt])
+  @@map("job_events")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(120)
+  aggregateType String    @map("aggregate_type") @db.VarChar(120)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  payload       Json
+  status        String    @default("PENDING") @db.VarChar(40)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status, createdAt])
+  @@map("outbox_events")
+}
+
+model InboxEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  source         String   @db.VarChar(120)
+  eventType      String   @map("event_type") @db.VarChar(120)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(200)
+  payloadHash    String   @map("payload_hash") @db.Char(64)
+  payload         Json
+  consumedAt      DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, source, idempotencyKey])
+  @@index([workspaceId, createdAt])
+  @@map("inbox_events")
+}
+
+// -----------------------------------------------------------------------------
+// Sakhaa Signal V1 — Creative Intelligence Models
+// -----------------------------------------------------------------------------
+
+enum AnalysisMode {
+  STATIC_STANDARD
+  VIDEO_STANDARD
+  FULL_WITH_TRIBEV2
+
+  @@map("analysis_mode")
+}
+
+model AnalysisJob {
+  id              String                @id @default(uuid()) @db.Uuid
+  workspaceId     String                @map("workspace_id") @db.Uuid
+  title           String?               @db.VarChar(240)
+  mode            AnalysisMode
+  status          JobStatus             @default(QUEUED)
+  progressPercent Int                   @default(0) @map("progress_percent")
+  currentStage    String?               @map("current_stage") @db.VarChar(120)
+  
+  // Media Input
+  inputArtifactId String                @map("input_artifact_id") @db.Uuid
+  inputObjectKey  String                @map("input_object_key") @db.VarChar(500)
+  mediaType       String                @map("media_type") @db.VarChar(80) // image or video
+  durationSeconds Float?                @map("duration_seconds")
+  
+  // Optional Campaign Context
+  brandName        String?              @map("brand_name") @db.VarChar(160)
+  targetPlatform   String?              @map("target_platform") @db.VarChar(80)
+  placement        String?              @map("placement") @db.VarChar(80)
+  creativeGoal     String?              @map("creative_goal") @db.VarChar(240)
+  selectedModel    String?              @map("selected_model") @db.VarChar(80)
+  
+  // Lease Management
+  leaseOwner       String?              @map("lease_owner") @db.VarChar(160)
+  leaseExpiresAt   DateTime?            @map("lease_expires_at") @db.Timestamptz(6)
+  
+  errorMessage     String?              @map("error_message") @db.Text
+  completedAt      DateTime?            @map("completed_at") @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workspace        Workspace            @relation(fields: [workspaceId], references: [id])
+  stages           AnalysisStage[]
+  evidence         EvidenceObservation[]
+  ruleResults      RuleResult[]
+  categoryScores   CategoryScore[]
+  findings         Finding[]
+  reports          ReportArtifact[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@map("analysis_jobs")
+}
+
+model AnalysisStage {
+  id            String      @id @default(uuid()) @db.Uuid
+  analysisJobId String      @map("analysis_job_id") @db.Uuid
+  stageName     String      @map("stage_name") @db.VarChar(120)
+  stageOrder    Int         @default(1) @map("stage_order")
+  status        JobStatus   @default(QUEUED)
+  startedAt     DateTime?   @map("started_at") @db.Timestamptz(6)
+  completedAt   DateTime?   @map("completed_at") @db.Timestamptz(6)
+  metadata      Json?
+  
+  analysisJob   AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, stageName])
+  @@map("analysis_stages")
+}
+
+model EvidenceObservation {
+  id              String      @id @default(uuid()) @db.Uuid
+  analysisJobId   String      @map("analysis_job_id") @db.Uuid
+  observationType String      @map("observation_type") @db.VarChar(120) // LOGO_DETECTION, OCR_TEXT, SHOT_BOUNDARY, YAMNET_EVENT, etc.
+  label           String?     @db.Text
+  startMs         Int?        @map("start_ms")
+  endMs           Int?        @map("end_ms")
+  boundingBox     Json?       @map("bounding_box") // {x, y, width, height}
+  confidence      Float       @default(1.0)
+  provider        String      @db.VarChar(120) // GOOGLE_VISION, GOOGLE_VIDEO_INTELLIGENCE, GROQ_WHISPER, YAMNET, OPENCV
+  rawMetadata     Json?       @map("raw_metadata")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysisJob     AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, observationType])
+  @@map("evidence_observations")
+}
+
+model RuleResult {
+  id            String      @id @default(uuid()) @db.Uuid
+  analysisJobId String      @map("analysis_job_id") @db.Uuid
+  ruleCode      String      @map("rule_code") @db.VarChar(120)
+  status        String      @db.VarChar(40) // PASS, FAIL, NOT_APPLICABLE, UNKNOWN
+  expected      String?     @db.Text
+  actual        String?     @db.Text
+  severity      String      @default("MEDIUM") @db.VarChar(40) // HIGH, MEDIUM, LOW
+  evidenceIds   Json?       @map("evidence_ids")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysisJob   AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, ruleCode])
+  @@map("rule_results")
+}
+
+model CategoryScore {
+  id            String      @id @default(uuid()) @db.Uuid
+  analysisJobId String      @map("analysis_job_id") @db.Uuid
+  category      String      @db.VarChar(120) // HOOK, COPY_CLARITY, CTA, VISUAL_CONSTRUCTION, BRANDING, COMPLIANCE, TRIBE_EP, TRIBE_VP, TRIBE_CS, TRIBE_BR
+  score         Float       // 0 to 100
+  confidence    Float       @default(1.0)
+  weight        Float       @default(1.0)
+  breakdown     Json?       // Input factors and calculations
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysisJob   AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, category])
+  @@map("category_scores")
+}
+
+model Finding {
+  id             String      @id @default(uuid()) @db.Uuid
+  analysisJobId  String      @map("analysis_job_id") @db.Uuid
+  type           String      @db.VarChar(60) // STRENGTH, WEAKNESS, RECOMMENDATION
+  category       String      @db.VarChar(120)
+  title          String      @db.VarChar(240)
+  description    String      @db.Text
+  recommendation String?     @map("recommendation") @db.Text
+  impactPriority String      @default("MEDIUM") @map("impact_priority") @db.VarChar(40) // HIGH, MEDIUM, LOW
+  timestampMs    Int?        @map("timestamp_ms")
+  evidenceIds    Json?       @map("evidence_ids")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysisJob    AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, type])
+  @@map("findings")
+}
+
+model ReportArtifact {
+  id            String      @id @default(uuid()) @db.Uuid
+  analysisJobId String      @map("analysis_job_id") @db.Uuid
+  reportType    String      @map("report_type") @db.VarChar(80) // INTERACTIVE_WEB, FULL_JSON, ZIP_BUNDLE
+  objectKey     String      @map("object_key") @db.VarChar(500)
+  schemaVersion String      @map("schema_version") @db.VarChar(40)
+  summaryJson   Json        @map("summary_json")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  analysisJob   AnalysisJob @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+
+  @@index([analysisJobId, reportType])
+  @@map("report_artifacts")
+}
+
+// ----------------------------------------------------
+// SaaS Operating Layer Models
+// ----------------------------------------------------
+
+enum PlatformRole {
+  SUPER_ADMIN
+  SUPPORT
+  OPERATIONS
+  FINANCE
+
+  @@map("platform_role")
+}
+
+model UserProfile {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  avatarUrl         String?  @map("avatar_url")
+  timezone          String?  @db.VarChar(80)
+  locale            String?  @db.VarChar(20)
+  notificationPrefs Json?    @map("notification_prefs")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("user_profiles")
+}
+
+model WorkspaceInvite {
+  id             String         @id @default(uuid()) @db.Uuid
+  workspaceId    String         @map("workspace_id") @db.Uuid
+  email          String         @db.VarChar(320)
+  role           MembershipRole
+  tokenHash      String         @map("token_hash") @db.Char(64)
+  invitedById    String         @map("invited_by_id") @db.Uuid
+  status         String         @default("PENDING") @db.VarChar(40)
+  expiresAt      DateTime       @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime?      @map("accepted_at") @db.Timestamptz(6)
+  revokedAt      DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, status])
+  @@unique([workspaceId, email, status])
+  @@map("workspace_invites")
+}
+
+model PlatformAdmin {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @unique @map("user_id") @db.Uuid
+  role      PlatformRole
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_admins")
+}
+
+model BillingCustomer {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workspaceId        String   @unique @map("workspace_id") @db.Uuid
+  provider           String   @db.VarChar(40)
+  providerCustomerId String   @map("provider_customer_id") @db.VarChar(200)
+  billingEmail       String?  @map("billing_email") @db.VarChar(320)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("billing_customers")
+}
+
+model Subscription {
+  id                     String   @id @default(uuid()) @db.Uuid
+  workspaceId            String   @map("workspace_id") @db.Uuid
+  provider               String   @db.VarChar(40)
+  providerSubscriptionId String   @map("provider_subscription_id") @db.VarChar(200)
+  planCode               String   @map("plan_code") @db.VarChar(80)
+  status                 String   @db.VarChar(40)
+  currentPeriodStart     DateTime @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd       DateTime @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd      Boolean  @default(false) @map("cancel_at_period_end")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, status])
+  @@map("subscriptions")
+}
+
+model CreditBalance {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @unique @map("workspace_id") @db.Uuid
+  balance     Decimal  @db.Decimal(12, 4)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("credit_balances")
+}
+
+model UsageLedger {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  analysisJobId String?  @map("analysis_job_id") @db.Uuid
+  usageType     String   @map("usage_type") @db.VarChar(80)
+  quantity      Decimal  @db.Decimal(12, 4)
+  unit          String   @db.VarChar(40)
+  creditsDelta  Decimal  @map("credits_delta") @db.Decimal(12, 4)
+  reason        String   @db.VarChar(200)
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, createdAt])
+  @@map("usage_ledger")
+}
+
+model WorkerHeartbeat {
+  id           String   @id @default(uuid()) @db.Uuid
+  workerId     String   @unique @map("worker_id") @db.VarChar(160)
+  workerType   String   @map("worker_type") @db.VarChar(80)
+  status       String   @db.VarChar(40)
+  currentJobId String?  @map("current_job_id") @db.Uuid
+  lastSeenAt   DateTime @map("last_seen_at") @db.Timestamptz(6)
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workerType, status, lastSeenAt])
+  @@map("worker_heartbeats")
+}
+
+model ReportShareLink {
+  id            String    @id @default(uuid()) @db.Uuid
+  analysisJobId String    @map("analysis_job_id") @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  tokenHash     String    @map("token_hash") @db.Char(64)
+  expiresAt     DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdById   String    @map("created_by_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([analysisJobId])
+  @@map("report_share_links")
+}
+
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String?   @map("workspace_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  type        String    @db.VarChar(80)
+  title       String    @db.VarChar(200)
+  body        String    @db.Text
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+

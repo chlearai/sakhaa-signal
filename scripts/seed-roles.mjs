@@ -51,6 +51,20 @@ const ROLE_ASSIGNMENTS = [
     role: "REVIEWER",
     isPlatformAdmin: false,
   },
+  {
+    id: "a5555555-5555-4555-a555-555555555555",
+    email: "pm@agency.com",
+    displayName: "Agency Project Manager",
+    role: "CLIENT_MANAGER",
+    isPlatformAdmin: false,
+  },
+  {
+    id: "a6666666-6666-4666-a666-666666666666",
+    email: "pm@agency",
+    displayName: "Agency PM Short",
+    role: "CLIENT_MANAGER",
+    isPlatformAdmin: false,
+  },
 ];
 
 async function main() {
